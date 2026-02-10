@@ -1,91 +1,16 @@
 import { ActionPanel, Action, Icon, List, getPreferenceValues, showToast, Toast } from "@raycast/api";
 import { usePromise } from "@raycast/utils";
-import { promises as fs } from "fs";
+import { exec } from "child_process";
 import path from "path";
 import { useState } from "react";
+import { promisify } from "util";
+
+import { findGitRoot, findSolutionFiles, runDockerCompose } from "./helpers";
+
+const execAsync = promisify(exec);
 
 interface Preferences {
   searchPath: string;
-}
-
-interface Solution {
-  name: string;
-  path: string;
-  directory: string;
-  extension: ".sln" | ".slnx";
-}
-
-async function findSolutionFiles(rootPath: string): Promise<Solution[]> {
-  const solutions: Solution[] = [];
-
-  // Folders to exclude from search
-  const excludedFolders = new Set([
-    "bin",
-    "obj",
-    "node_modules",
-    "packages",
-    ".vs",
-    ".vscode",
-    ".idea",
-    ".git",
-    "Debug",
-    "Release",
-    "TestResults",
-    "dist",
-    "build",
-  ]);
-
-  async function search(currentPath: string): Promise<boolean> {
-    try {
-      const entries = await fs.readdir(currentPath, { withFileTypes: true });
-      let foundSolution = false;
-
-      // First pass: look for solution files
-      for (const entry of entries) {
-        if (entry.isFile() && (entry.name.endsWith(".sln") || entry.name.endsWith(".slnx"))) {
-          const fullPath = path.join(currentPath, entry.name);
-          const extension = entry.name.endsWith(".slnx") ? ".slnx" : ".sln";
-          const name = entry.name.replace(/\.(sln|slnx)$/, "");
-          solutions.push({
-            name,
-            path: fullPath,
-            directory: currentPath,
-            extension,
-          });
-          foundSolution = true;
-        }
-      }
-
-      // If we found a solution in this folder, don't search subdirectories
-      if (foundSolution) {
-        return true;
-      }
-
-      // Second pass: search subdirectories
-      for (const entry of entries) {
-        if (entry.isDirectory()) {
-          const folderName = entry.name.toLowerCase();
-
-          // Skip excluded folders and hidden folders
-          if (entry.name.startsWith(".") || excludedFolders.has(entry.name) || excludedFolders.has(folderName)) {
-            continue;
-          }
-
-          const fullPath = path.join(currentPath, entry.name);
-          await search(fullPath);
-        }
-      }
-
-      return false;
-    } catch (error) {
-      // Skip directories we can't access
-      console.error(`Cannot access ${currentPath}:`, error);
-      return false;
-    }
-  }
-
-  await search(rootPath);
-  return solutions.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 export default function Command() {
@@ -112,35 +37,198 @@ export default function Command() {
     solution.name.toLowerCase().includes(searchText.toLowerCase()),
   );
 
+  async function runDockerCommand(composePath: string, command: string, commandName: string) {
+    const composeDir = path.dirname(composePath);
+    showToast({ style: Toast.Style.Animated, title: `Running ${commandName}...` });
+
+    try {
+      const result = await runDockerCompose(command, composeDir);
+      console.log(`Docker output:`, result.stdout);
+      showToast({ style: Toast.Style.Success, title: `${commandName} completed` });
+    } catch (error) {
+      const msg = formatError(error);
+      console.error(`${commandName} error:`, msg);
+      showToast({ style: Toast.Style.Failure, title: `${commandName} failed`, message: msg });
+    }
+  }
+
+  async function pullAndStartDocker(composePath: string, projectDirectory: string) {
+    showToast({ style: Toast.Style.Animated, title: "Docker: Pulling latest code..." });
+
+    try {
+      const gitRoot = await findGitRoot(projectDirectory);
+      if (!gitRoot) throw new Error("Git repository not found");
+
+      const pullResult = await execAsync("git pull", { cwd: gitRoot });
+      console.log("Git pull output:", pullResult.stdout);
+
+      showToast({ style: Toast.Style.Animated, title: "Docker: Starting containers..." });
+
+      const composeDir = path.dirname(composePath);
+      const dockerResult = await runDockerCompose("up -d --build", composeDir);
+      console.log("Docker compose output:", dockerResult.stdout);
+
+      showToast({
+        style: Toast.Style.Success,
+        title: "Docker Compose Up Completed",
+        message: pullResult.stdout.includes("Already up to date") ? "Already up to date" : "Updated & started",
+      });
+    } catch (error) {
+      const msg = formatError(error);
+      console.error("Docker pull & up error:", msg);
+      showToast({ style: Toast.Style.Failure, title: "Docker Compose Pull & Up Failed", message: msg });
+    }
+  }
+
+  async function openTerminalAndRun(directory: string, composePath: string) {
+    const gitRoot = await findGitRoot(directory);
+    const composeDir = path.dirname(composePath);
+
+    const escape = (s: string) => s.replace(/'/g, "'\\''");
+
+    const script = gitRoot
+      ? `cd '${escape(gitRoot)}' && echo '>>> Pulling latest code...' && git pull && echo '' && echo '>>> Starting Docker containers...' && cd '${escape(composeDir)}' && (docker compose up -d --build || docker-compose up -d --build)`
+      : `cd '${escape(composeDir)}' && echo '>>> Starting Docker containers...' && (docker compose up -d --build || docker-compose up -d --build)`;
+
+    try {
+      await execAsync(`osascript -e 'tell application "Terminal" to do script "${script}"'`);
+      await execAsync(`osascript -e 'tell application "Terminal" to activate'`);
+    } catch (error) {
+      showToast({ style: Toast.Style.Failure, title: "Failed to Open Terminal", message: formatError(error) });
+    }
+  }
+
+  function formatError(error: unknown): string {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const stderr = (error as { stderr?: string }).stderr || "";
+    const full = stderr ? `${errorMessage}\n${stderr}` : errorMessage;
+    return full.length > 200 ? full.substring(0, 200) + "..." : full;
+  }
+
   return (
     <List isLoading={isLoading} onSearchTextChange={setSearchText} searchBarPlaceholder="Search .NET solutions...">
-      {filteredSolutions?.map((solution) => (
-        <List.Item
-          key={solution.path}
-          icon={Icon.Code}
-          title={solution.name}
-          subtitle={solution.directory}
-          accessories={[{ icon: Icon.Document, text: solution.extension }]}
-          actions={
-            <ActionPanel>
-              <Action.Open title="Open in Rider" target={solution.path} application="Rider" />
-              <Action.Open
-                title="Open in Visual Studio Code"
-                target={solution.path}
-                application="Visual Studio Code"
-                shortcut={{ modifiers: ["cmd"], key: "v" }}
-              />
-              <Action.OpenWith path={solution.path} shortcut={{ modifiers: ["cmd"], key: "o" }} />
-              <Action.ShowInFinder path={solution.path} shortcut={{ modifiers: ["cmd"], key: "f" }} />
-              <Action.CopyToClipboard
-                title="Copy Path"
-                content={solution.path}
-                shortcut={{ modifiers: ["cmd"], key: "c" }}
-              />
-            </ActionPanel>
-          }
-        />
-      ))}
+      {filteredSolutions?.map((solution) => {
+        const accessories: List.Item.Accessory[] = [{ icon: Icon.Document, text: solution.extension }];
+        if (solution.dockerComposePath) {
+          accessories.push({ icon: { source: Icon.Box }, tooltip: "Docker Compose available" });
+        }
+        if (solution.gitRemoteUrl) {
+          accessories.push({ icon: { source: Icon.Link }, tooltip: "Git remote configured" });
+        }
+
+        return (
+          <List.Item
+            key={solution.path}
+            icon={Icon.Code}
+            title={solution.name}
+            subtitle={solution.directory}
+            accessories={accessories}
+            actions={
+              <ActionPanel>
+                <ActionPanel.Section title="Open">
+                  <Action.Open title="Open in Rider" target={solution.path} application="Rider" />
+                  <Action.Open
+                    title="Open in Visual Studio Code"
+                    target={solution.path}
+                    application="Visual Studio Code"
+                    shortcut={{ modifiers: ["cmd"], key: "v" }}
+                  />
+                  <Action.OpenWith path={solution.path} shortcut={{ modifiers: ["cmd"], key: "o" }} />
+                </ActionPanel.Section>
+
+                {solution.dockerComposePath && (
+                  <ActionPanel.Section title="Docker Compose">
+                    <Action
+                      title="Git Pull & Docker Compose up"
+                      icon={Icon.Download}
+                      shortcut={{ modifiers: ["cmd"], key: "d" }}
+                      onAction={() => pullAndStartDocker(solution.dockerComposePath!, solution.directory)}
+                    />
+                    <Action
+                      title="Git Pull & Docker Compose up in Terminal"
+                      icon={Icon.Terminal}
+                      shortcut={{ modifiers: ["cmd", "shift"], key: "r" }}
+                      onAction={() => openTerminalAndRun(solution.directory, solution.dockerComposePath!)}
+                    />
+                    <Action
+                      title="Docker Compose Start"
+                      icon={Icon.Play}
+                      shortcut={{ modifiers: ["cmd", "shift"], key: "u" }}
+                      onAction={() => runDockerCommand(solution.dockerComposePath!, "up -d", "Docker Compose Start")}
+                    />
+                    <Action
+                      title="Docker Compose Stop"
+                      icon={Icon.Stop}
+                      shortcut={{ modifiers: ["cmd", "shift"], key: "d" }}
+                      onAction={() => runDockerCommand(solution.dockerComposePath!, "down", "Docker Compose Stop")}
+                    />
+                    <Action
+                      title="Docker Compose Logs"
+                      icon={Icon.Text}
+                      shortcut={{ modifiers: ["cmd"], key: "l" }}
+                      onAction={async () => {
+                        const composeDir = path.dirname(solution.dockerComposePath!);
+                        const escaped = composeDir.replace(/'/g, "'\\''");
+                        const script = `cd '${escaped}' && (docker compose logs -f || docker-compose logs -f)`;
+                        try {
+                          await execAsync(`osascript -e 'tell application "Terminal" to do script "${script}"'`);
+                          await execAsync(`osascript -e 'tell application "Terminal" to activate'`);
+                        } catch (error) {
+                          showToast({
+                            style: Toast.Style.Failure,
+                            title: "Failed to Open Terminal",
+                            message: formatError(error),
+                          });
+                        }
+                      }}
+                    />
+                  </ActionPanel.Section>
+                )}
+
+                <ActionPanel.Section title="Links">
+                  {solution.gitRemoteUrl && (
+                    <Action.OpenInBrowser
+                      title="Open Repository in Browser"
+                      icon={Icon.Globe}
+                      url={solution.gitRemoteUrl}
+                      shortcut={{ modifiers: ["cmd"], key: "b" }}
+                    />
+                  )}
+                  <Action
+                    title="Open in Terminal"
+                    icon={Icon.Terminal}
+                    shortcut={{ modifiers: ["cmd"], key: "t" }}
+                    onAction={async () => {
+                      const escaped = solution.directory.replace(/'/g, "'\\''");
+                      try {
+                        await execAsync(
+                          `osascript -e 'tell application "Terminal" to do script "cd '\\''${escaped}'\\''"'`,
+                        );
+                        await execAsync(`osascript -e 'tell application "Terminal" to activate'`);
+                      } catch (error) {
+                        showToast({
+                          style: Toast.Style.Failure,
+                          title: "Failed to Open Terminal",
+                          message: formatError(error),
+                        });
+                      }
+                    }}
+                  />
+                </ActionPanel.Section>
+
+                <ActionPanel.Section title="Actions">
+                  <Action.ShowInFinder path={solution.path} shortcut={{ modifiers: ["cmd"], key: "f" }} />
+                  <Action.CopyToClipboard
+                    title="Copy Path"
+                    content={solution.path}
+                    shortcut={{ modifiers: ["cmd"], key: "c" }}
+                  />
+                </ActionPanel.Section>
+              </ActionPanel>
+            }
+          />
+        );
+      })}
       {!isLoading && filteredSolutions?.length === 0 && (
         <List.EmptyView
           icon={Icon.MagnifyingGlass}
