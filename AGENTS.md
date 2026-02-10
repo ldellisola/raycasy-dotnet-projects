@@ -27,3 +27,14 @@
 - Always excludes folders starting with `.`
 - Default action: Open in Rider (primary IDE)
 - Alternative actions: VS Code (Cmd+V), Open With (Cmd+O), Show in Finder (Cmd+F), Copy Path (Cmd+C)
+- Docker Compose detection in project root, `docker/`, `Docker/`, `.docker/` folders
+- Docker actions: Pull & Rebuild (Cmd+D), Start (Cmd+Shift+U), Stop (Cmd+Shift+D), Logs (Cmd+L), Terminal (Cmd+Shift+R)
+- Git remote detection: auto-parses SSH and HTTPS URLs for Bitbucket/GitHub/GitLab
+- Open repository in browser (Cmd+B), Open in Terminal (Cmd+T)
+- Extended PATH for Docker credential helpers (`/usr/local/bin`, `/opt/homebrew/bin`)
+- Compatible with both modern `docker compose` and legacy `docker-compose`
+
+## File Structure
+
+- `src/search--net-projects.tsx` - Main command: UI component with action panel
+- `src/helpers.ts` - Shared logic: solution search, Docker compose detection, git remote parsing
