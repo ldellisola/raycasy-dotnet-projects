@@ -1,4 +1,4 @@
-import { ActionPanel, Action, Icon, List, getPreferenceValues, showToast, Toast } from "@raycast/api";
+import { ActionPanel, Action, Icon, Keyboard, List, getPreferenceValues, showToast, Toast } from "@raycast/api";
 import { usePromise } from "@raycast/utils";
 import { exec } from "child_process";
 import path from "path";
@@ -33,9 +33,8 @@ export default function Command() {
     },
   );
 
-  const filteredSolutions = solutions?.filter((solution) =>
-    solution.name.toLowerCase().includes(searchText.toLowerCase()),
-  );
+  const normalizedSearchText = searchText.trim().toLowerCase();
+  const filteredSolutions = solutions?.filter((solution) => solution.name.toLowerCase().includes(normalizedSearchText));
 
   async function runDockerCommand(composePath: string, command: string, commandName: string) {
     const composeDir = path.dirname(composePath);
@@ -133,7 +132,7 @@ export default function Command() {
                     application="Visual Studio Code"
                     shortcut={{ modifiers: ["cmd"], key: "v" }}
                   />
-                  <Action.OpenWith path={solution.path} shortcut={{ modifiers: ["cmd"], key: "o" }} />
+                  <Action.OpenWith path={solution.path} shortcut={Keyboard.Shortcut.Common.OpenWith} />
                 </ActionPanel.Section>
 
                 {solution.dockerComposePath && (

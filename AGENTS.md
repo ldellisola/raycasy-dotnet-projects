@@ -26,7 +26,7 @@
 - Excludes: `bin`, `obj`, `node_modules`, `packages`, `.vs`, `.vscode`, `.idea`, `.git`, `Debug`, `Release`, `TestResults`, `dist`, `build`
 - Always excludes folders starting with `.`
 - Default action: Open in Rider (primary IDE)
-- Alternative actions: VS Code (Cmd+V), Open With (Cmd+O), Show in Finder (Cmd+F), Copy Path (Cmd+C)
+- Alternative actions: VS Code (Cmd+V), Open With (Cmd+Shift+O), Show in Finder (Cmd+F), Copy Path (Cmd+C)
 - Docker Compose detection in project root, `docker/`, `Docker/`, `.docker/` folders
 - Docker actions: Pull & Rebuild (Cmd+D), Start (Cmd+Shift+U), Stop (Cmd+Shift+D), Logs (Cmd+L), Terminal (Cmd+Shift+R)
 - Git remote detection: auto-parses SSH and HTTPS URLs for Bitbucket/GitHub/GitLab

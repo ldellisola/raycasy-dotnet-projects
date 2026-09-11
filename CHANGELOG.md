@@ -1,5 +1,11 @@
 # C# Projects Changelog
 
+## [Raycast 2.x Support] - {PR_MERGE_DATE}
+
+- Upgraded to `@raycast/api` 2.x and `@raycast/utils` 2.x
+- "Open with..." now uses the standard Raycast shortcut (Cmd+Shift+O instead of Cmd+O)
+- Declared the extension as macOS-only, matching its AppleScript-based Terminal actions
+
 ## [Docker & Git Integration] - {PR_MERGE_DATE}
 
 - Docker Compose support: detect docker-compose files in project root, docker/, Docker/, .docker/ folders

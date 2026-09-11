@@ -26,7 +26,7 @@ Search and open C# solution files (.sln and .slnx) in your preferred IDE.
 |----------|--------|
 | **Enter** | Open in Rider (default) |
 | **Cmd+V** | Open in Visual Studio Code |
-| **Cmd+O** | Open with... (choose application) |
+| **Cmd+Shift+O** | Open with... (choose application) |
 
 ### Docker Compose
 
